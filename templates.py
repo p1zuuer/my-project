@@ -1,5 +1,5 @@
 """
-Централизованные шаблоны и i18n-система для Dormant Wallet Tracker.
+Централизованные шаблоны и i18n-система для Nulladress AI.
 Дизайн: "White & Grey Minimal" (Apple / Vercel style).
 
 ВАЖНО: bot.py вызывает функции ТОЛЬКО через префикс `templates.` —
@@ -34,7 +34,7 @@ STATUS_FREE = "▫️"
 
 TRANSLATIONS = {
     "en": {
-        "start_title": "Dormant Wallet Tracker",
+        "start_title": "Nulladress AI",
         "start_body": (
             "Monitoring dormant Ethereum wallets — and the moment they wake up.\n\n"
             "▫️ Free — public channel, 20 min delay\n"
@@ -262,7 +262,7 @@ TRANSLATIONS = {
         "recent_cta": "Want alerts like this the instant they happen? — /buy",
     },
     "ru": {
-        "start_title": "Dormant Wallet Tracker",
+        "start_title": "Nulladress AI",
         "start_body": (
             "Отслеживаем спящие Ethereum-кошельки — и момент их пробуждения.\n\n"
             "▫️ Free — публичный канал, задержка 20 минут\n"
