@@ -125,7 +125,7 @@ TRANSLATIONS = {
             "📖 <a href=\"{guide_url}\">Read the full guide &amp; terms</a>\n\n"
             "You're all set. Tap below to open the main menu."
         ),
-        "btn_start_using": "🚀 Start Using Bot",
+        "btn_start_using": "▸ Start Using Bot",
 
         "alert_public_title": "WALLET AWAKENED",
         "alert_vip_title": "VIP · WALLET AWAKENED",
@@ -238,7 +238,7 @@ TRANSLATIONS = {
         "invite_share_hint": "Just send this link to a friend.",
         "invite_share_text": "I'm tracking dormant Ethereum whales with this bot — check it out!",
         "btn_share": "📤 Share link",
-        "invite_earn_title": "💰 Earn cash, not just VIP days",
+        "invite_earn_title": "▪️ Earn cash, not just VIP days",
         "invite_earn_body": (
             "When someone you invite buys VIP, you earn <b>20%</b> of what they paid — "
             "in real money, credited to your balance."
@@ -246,7 +246,7 @@ TRANSLATIONS = {
         "invite_balance_pending": "Pending",
         "invite_balance_paid": "Paid out",
         "invite_balance_total": "Total earned",
-        "btn_balance": "💰 My balance",
+        "btn_balance": "▪️ My balance",
         "btn_withdraw": "💸 Request payout",
         "withdraw_none": "You have no pending balance to withdraw.",
         "withdraw_requested": "✅ Payout of <b>${amount}</b> requested. We'll process it within 48h.",
@@ -353,7 +353,7 @@ TRANSLATIONS = {
             "📖 <a href=\"{guide_url}\">Читать гайд и условия использования</a>\n\n"
             "Все готово. Нажмите кнопку ниже, чтобы открыть главное меню."
         ),
-        "btn_start_using": "🚀 Открыть главное меню",
+        "btn_start_using": "▸ Открыть главное меню",
 
         "alert_public_title": "КОШЕЛЕК ПРОБУДИЛСЯ",
         "alert_vip_title": "VIP · КОШЕЛЕК ПРОБУДИЛСЯ",
@@ -466,7 +466,7 @@ TRANSLATIONS = {
         "invite_share_hint": "Просто отправьте эту ссылку другу.",
         "invite_share_text": "Слежу за пробуждением спящих Ethereum-китов через этого бота — залетай!",
         "btn_share": "📤 Поделиться ссылкой",
-        "invite_earn_title": "💰 Зарабатывайте деньги, а не только VIP-дни",
+        "invite_earn_title": "▪️ Зарабатывайте деньги, а не только VIP-дни",
         "invite_earn_body": (
             "Когда приглашенный вами друг покупает VIP, вы получаете <b>20%</b> от суммы оплаты — "
             "реальными деньгами на баланс."
@@ -474,7 +474,7 @@ TRANSLATIONS = {
         "invite_balance_pending": "В ожидании",
         "invite_balance_paid": "Выплачено",
         "invite_balance_total": "Всего заработано",
-        "btn_balance": "💰 Мой баланс",
+        "btn_balance": "▪️ Мой баланс",
         "btn_withdraw": "💸 Запросить выплату",
         "withdraw_none": "У вас нет средств для вывода.",
         "withdraw_requested": "✅ Запрос на выплату <b>${amount}</b> отправлен. Обработаем в течение 48 часов.",
@@ -518,12 +518,13 @@ def get_start_text(lang: str = "en") -> str:
 
 def get_start_keyboard(lang: str = "en") -> InlineKeyboardMarkup:
     """
-    Главное меню — ровно 4 кнопки в сетке 2x2, все остальные экраны (оплата,
-    язык, статистика, приглашения) достижимы ИЗ них, а не занимают отдельные
-    места на первом экране:
+    Главное меню — 2x3, расширено с исходного 2x2 (было явно намеренным
+    ограничением, но §9 брифа сам флагнул это как "worth a UX pass", т.к.
+    /stats и /invite существовали, но были нигде не видны на главном экране):
 
-        [ 🔍 Проверить кошелек ]  [ 📁 Мой Watchlist ]
-        [ 👤 Профиль и Оплата ]   [ ⚙️ Настройки ]
+        [ 🔍 Check Wallet ]     [ 📁 My Watchlist ]
+        [ 👤 Profile & Payment ] [ ⚙️ Settings ]
+        [ 📊 Network Stats ]    [ ◇ Invite Friends ]
     """
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -533,6 +534,10 @@ def get_start_keyboard(lang: str = "en") -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text=f"👤 {_t(lang, 'btn_profile_payment')}", callback_data="open_profile"),
             InlineKeyboardButton(text=f"⚙️ {_t(lang, 'btn_settings')}", callback_data="open_settings"),
+        ],
+        [
+            InlineKeyboardButton(text=f"📊 {_t(lang, 'btn_stats')}", callback_data="open_stats"),
+            InlineKeyboardButton(text=f"◇ {_t(lang, 'btn_invite')}", callback_data="open_invite"),
         ],
     ])
 
@@ -596,7 +601,7 @@ def get_wallet_card_keyboard(address: str, lang: str = "en") -> InlineKeyboardMa
 # ---- 🔔 Порог алертов (подменю) ----
 
 WALLET_THRESHOLD_OPTIONS = [1.0, 5.0, 10.0, 50.0]
-_THRESHOLD_ICONS = {1.0: "⚡️", 5.0: "🚀", 10.0: "💎", 50.0: "🐋"}
+_THRESHOLD_ICONS = {1.0: "⚡️", 5.0: "▸", 10.0: "◆", 50.0: "◈"}
 
 
 def get_threshold_submenu_text(address: str, label: str, current_threshold: float, lang: str = "en") -> str:
@@ -612,7 +617,7 @@ def get_threshold_submenu_text(address: str, label: str, current_threshold: floa
 def get_threshold_submenu_keyboard(address: str, lang: str = "en") -> InlineKeyboardMarkup:
     row = []
     for val in WALLET_THRESHOLD_OPTIONS:
-        icon = _THRESHOLD_ICONS.get(val, "🔹")
+        icon = _THRESHOLD_ICONS.get(val, "◦")
         row.append(InlineKeyboardButton(
             text=f"{icon} {val:.0f} ETH",
             callback_data=f"wl_thr_{address}_{val:.0f}"
@@ -723,7 +728,7 @@ def get_profile_text(user_id: int, is_vip: bool, expire_date: str = None,
 
     if balance and balance.get("pending", 0) > 0:
         # Одна строка-тизер баланса аффилиата — полная разбивка доступна
-        # отдельно через "🎁 Пригласить и заработать", без дублирования здесь.
+        # отдельно через "◇ Пригласить и заработать", без дублирования здесь.
         lines.append(f"├ {_t(lang, 'profile_status')}: {status_line}")
         lines.append(f"└ {_t(lang, 'invite_balance_pending')}: <code>${balance['pending']:.2f}</code>")
     else:
@@ -734,24 +739,24 @@ def get_profile_text(user_id: int, is_vip: bool, expire_date: str = None,
 
 def get_profile_keyboard(is_vip: bool, lang: str = "en") -> InlineKeyboardMarkup:
     """
-    Единая точка входа в оплату — одна кнопка "💳 Пополнить баланс" вместо двух
+    Единая точка входа в оплату — одна кнопка "▫️ Пополнить баланс" вместо двух
     прежних (Stars и CryptoBot отдельно), которые вели к одной и той же покупке
     и дублировали друг друга на карточке профиля.
     """
     top_up_label = _t(lang, "btn_renew_vip") if is_vip else _t(lang, "btn_top_up")
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💳 {top_up_label}", callback_data="open_payment_menu")],
-        [InlineKeyboardButton(text=f"🎁 {_t(lang, 'btn_invite')}", callback_data="open_invite")],
+        [InlineKeyboardButton(text=f"▫️ {top_up_label}", callback_data="open_payment_menu")],
+        [InlineKeyboardButton(text=f"◇ {_t(lang, 'btn_invite')}", callback_data="open_invite")],
     ])
 
 
 # ==========================================================================
-# 💳 Пополнить баланс — единое подменю оплаты (Stars + CryptoPay)
+# ▫️ Пополнить баланс — единое подменю оплаты (Stars + CryptoPay)
 # ==========================================================================
 
 def get_payment_menu_text(lang: str = "en") -> str:
     return (
-        f"💳 <b>{_t(lang, 'payment_menu_title')}</b>\n"
+        f"▫️ <b>{_t(lang, 'payment_menu_title')}</b>\n"
         f"{DIVIDER}\n\n"
         f"{_t(lang, 'payment_menu_body')}"
     )
@@ -760,7 +765,7 @@ def get_payment_menu_text(lang: str = "en") -> str:
 def get_payment_menu_keyboard(lang: str = "en") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"⭐ {_t(lang, 'btn_pay_stars')}", callback_data="pay_stars")],
-        [InlineKeyboardButton(text=f"💎 {_t(lang, 'btn_pay_crypto')}", callback_data="pay_cryptobot")],
+        [InlineKeyboardButton(text=f"◆ {_t(lang, 'btn_pay_crypto')}", callback_data="pay_cryptobot")],
         [InlineKeyboardButton(text=f"◀ {_t(lang, 'btn_back_to_profile')}", callback_data="open_profile")],
     ])
 

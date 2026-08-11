@@ -217,7 +217,9 @@ async def process_open_invite_callback(callback: CallbackQuery, bot):
     await callback.answer()
     bot_user = await bot.get_me() if bot else None
     bot_username = bot_user.username if bot_user else "DormantWhaleTrackerBot"
-    await referral_handlers.cmd_invite(callback.message, bot_username)
+    # См. комментарий в referral_handlers.cmd_invite — callback.message
+    # авторства бота, поэтому реальный user_id берем из callback.from_user.
+    await referral_handlers.cmd_invite(callback.message, bot_username, user_id=callback.from_user.id)
 
 
 async def cmd_balance(message: Message):

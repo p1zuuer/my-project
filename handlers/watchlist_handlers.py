@@ -43,12 +43,28 @@ async def cmd_track(message: Message):
         await message.answer(templates.t(lang, "track_error"), parse_mode=ParseMode.HTML)
 
 
-async def cmd_watchlist(message: Message):
+async def cmd_watchlist(message: Message, user_id: int = None):
     """
     '📁 Мой Watchlist' — заголовок со счетчиком, затем каждый кошелек своей
     интерактивной карточкой (Row 1: Метка/Порог, Row 2: История/Удалить).
+
+    НАЙДЕННЫЙ БАГ (серьезный, влияет на основную навигацию): раньше эта
+    функция брала user_id ИСКЛЮЧИТЕЛЬНО из message.from_user.id. Это верно,
+    когда message — реальное сообщение пользователя (команда /watchlist),
+    но кнопка "📁 Мой Watchlist" в главном меню вызывала эту же функцию с
+    callback_query.message — а это сообщение, АВТОРОМ которого является сам
+    бот (Telegram Bot API: у любого Message есть `from`, и для сообщений,
+    отправленных ботом, `from` — это сам бот). Значит message.from_user.id
+    возвращал ID бота, а не нажавшего кнопку пользователя — каждый, кто
+    открывал watchlist через кнопку меню, видел пустой список вместо своего,
+    даже если реально отслеживал кошельки. /watchlist как текстовая команда
+    работала корректно — баг проявлялся ТОЛЬКО через инлайн-кнопку.
+
+    Теперь принимает необязательный user_id — если передан явно (из
+    callback.from_user.id, см. bot.py), используется он; иначе (обычный
+    вызов как обработчик команды) сохраняется прежнее поведение.
     """
-    user_id = message.from_user.id
+    user_id = user_id if user_id is not None else message.from_user.id
     lang = db.get_user_language(user_id)
 
     tracked = db.list_tracked_wallets(user_id)

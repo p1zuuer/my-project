@@ -4,9 +4,18 @@ import database as db
 import templates
 
 
-async def cmd_invite(message: Message, bot_username: str):
-    """Обработчик команды /invite."""
-    user_id = message.from_user.id
+async def cmd_invite(message: Message, bot_username: str, user_id: int = None):
+    """
+    Обработчик команды /invite.
+
+    НАЙДЕННЫЙ БАГ (тот же паттерн, что в cmd_watchlist/cmd_settings): при
+    вызове через кнопку "◇ Invite friends" эта функция получала
+    callback.message (авторства бота) и брала user_id из message.from_user —
+    т.е. ID бота, а не нажавшего кнопку. Реферальная ссылка и статистика
+    приглашений были бы неверными (или пустыми) для КАЖДОГО, кто открывал
+    инвайт через кнопку, а не командой /invite напрямую.
+    """
+    user_id = user_id if user_id is not None else message.from_user.id
     lang = db.get_user_language(user_id)
     ref_count = db.count_referrals(user_id)
 

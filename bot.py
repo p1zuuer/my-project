@@ -219,7 +219,7 @@ async def cmd_settings(message: types.Message):
 @dp.callback_query(lambda c: c.data == "open_settings")
 async def process_open_settings_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    await settings_handlers.cmd_settings(callback_query.message)
+    await settings_handlers.cmd_settings(callback_query.message, user_id=callback_query.from_user.id)
 
 
 @dp.callback_query(
@@ -397,7 +397,13 @@ async def cmd_watchlist(message: types.Message):
 @dp.callback_query(lambda c: c.data == "open_watchlist")
 async def process_open_watchlist_callback(callback_query: types.CallbackQuery):
     await callback_query.answer()
-    await watchlist_handlers.cmd_watchlist(callback_query.message)
+    await watchlist_handlers.cmd_watchlist(callback_query.message, user_id=callback_query.from_user.id)
+
+
+@dp.callback_query(lambda c: c.data == "open_stats")
+async def process_open_stats_callback(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    await stats_handlers.cmd_stats(callback_query.message, user_id=callback_query.from_user.id)
 
 
 @dp.callback_query(lambda c: c.data.startswith("wl_lbl_"))

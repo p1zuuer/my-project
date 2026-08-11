@@ -39,9 +39,19 @@ async def get_eth_price_usd() -> float:
     return _ETH_PRICE_CACHE["price"]
 
 
-async def cmd_stats(message: Message):
-    """Обработчик команды /stats."""
-    lang = db.get_user_language(message.from_user.id)
+async def cmd_stats(message: Message, user_id: int = None):
+    """
+    Обработчик команды /stats.
+
+    Принимает необязательный user_id по тому же паттерну, что и
+    cmd_watchlist/cmd_settings/cmd_invite (см. их комментарии) — /stats
+    показывает сеть в целом, а не персональные данные, так что до сих пор
+    это не проявлялось как видимый баг, но callback.message.from_user все
+    равно был бы ID бота, а не открывшего экран пользователя, если бы язык
+    интерфейса когда-либо стал персональным для этого экрана.
+    """
+    user_id = user_id if user_id is not None else message.from_user.id
+    lang = db.get_user_language(user_id)
     summary = db.get_stats_summary()
     eth_price = await get_eth_price_usd()
     text = templates.get_stats_text(summary, eth_price, lang)
