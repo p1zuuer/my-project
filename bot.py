@@ -15,6 +15,30 @@ import templates
 
 logger = logging.getLogger(__name__)
 
+# ==========================================================================
+# Опциональный error-мониторинг (Sentry) — найденный приоритет: раньше
+# единственным способом узнать о сбое в проде было вручную читать логи
+# Render. Полностью опционально и безопасно по умолчанию: если SENTRY_DSN
+# не задан или пакет sentry-sdk не установлен, бот работает как раньше —
+# просто без внешнего мониторинга. Инициализируется здесь (один раз, до
+# импорта checker.py) — оба модуля работают в одном процессе на одном event
+# loop, поэтому один init() на весь процесс покрывает исключения из обоих.
+# Чтобы включить: pip install sentry-sdk + задать SENTRY_DSN в окружении.
+# ==========================================================================
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0)
+        logger.info("Sentry инициализирован — необработанные ошибки будут отправляться в мониторинг.")
+    except ImportError:
+        logger.warning(
+            "SENTRY_DSN задан, но пакет sentry-sdk не установлен (pip install sentry-sdk) — "
+            "мониторинг отключен, работаем только с логами."
+        )
+else:
+    logger.info("SENTRY_DSN не задан — работаем без внешнего мониторинга ошибок (только логи Render).")
+
 # Инициализация бота и диспетчера для aiogram 3.x
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -24,8 +48,8 @@ PUBLIC_ALERT_DELAY_SECONDS = int(os.getenv("PUBLIC_ALERT_DELAY_SECONDS", "1200")
 PUBLIC_CHANNEL_LANGUAGE = os.getenv("PUBLIC_CHANNEL_LANGUAGE", "en")
 # Telegra.ph гайды — отдельная ссылка на каждый язык, для Instant View в Telegram.
 # Замените на реальные опубликованные страницы перед продакшн-деплоем.
-TELEGRAPH_GUIDE_URL_EN = os.getenv("TELEGRAPH_GUIDE_URL_EN", "https://telegra.ph/Dormant-Wallet-Tracker-Guide-EN")
-TELEGRAPH_GUIDE_URL_RU = os.getenv("TELEGRAPH_GUIDE_URL_RU", "https://telegra.ph/Dormant-Wallet-Tracker-Guide-RU")
+TELEGRAPH_GUIDE_URL_EN = os.getenv("TELEGRAPH_GUIDE_URL_EN", "https://telegra.ph/Nulladress-AI-Guide-EN")
+TELEGRAPH_GUIDE_URL_RU = os.getenv("TELEGRAPH_GUIDE_URL_RU", "https://telegra.ph/Nulladress-AI-Guide-RU")
 
 bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
 dp = Dispatcher()

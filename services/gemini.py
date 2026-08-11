@@ -6,6 +6,7 @@
 безопасный fallback-текст вместо падения хендлера.
 """
 import os
+import time
 import asyncio
 import logging
 from google import genai
@@ -20,6 +21,54 @@ client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 if not client:
     logger.warning("GEMINI_API_KEY не задан — Gemini отключен, все вызовы вернут fallback.")
+
+# ==========================================================================
+# Бюджетная защита (найденный приоритет: checker.py теперь обрабатывает
+# кошельки параллельно — см. checker.ETHERSCAN_CONCURRENCY — а значит и
+# Gemini-вызовы (радар-комментарии x2 языка + OSINT-саммари + /check) могут
+# "всплеснуть" одновременно сильнее, чем при последовательной обработке.
+# Раньше здесь не было НИКАКОГО потолка расходов: вирусный момент или кто-то,
+# спамящий /check в обход cooldown другим способом, мог привести к
+# непредсказуемому счету за Gemini. Теперь — два независимых ограничителя:
+#   1. GEMINI_CONCURRENCY — не больше N одновременных запросов к Gemini.
+#   2. GEMINI_DAILY_BUDGET — жесткий потолок вызовов в сутки (UTC), после
+#      которого _generate() сразу возвращает None (уходит в уже
+#      существующий fallback-текст) БЕЗ обращения к API.
+# Оба настраиваются через env — по умолчанию консервативны для старта.
+# ==========================================================================
+GEMINI_CONCURRENCY = int(os.getenv("GEMINI_CONCURRENCY", "3"))
+GEMINI_DAILY_BUDGET = int(os.getenv("GEMINI_DAILY_BUDGET", "1500"))
+
+_gemini_semaphore = asyncio.Semaphore(GEMINI_CONCURRENCY)
+_budget_lock = asyncio.Lock()
+_budget_state = {"day": None, "count": 0}
+
+
+async def _budget_available() -> bool:
+    """Проверяет и инкрементирует дневной счетчик вызовов Gemini атомарно
+    (asyncio.Lock — защита от гонки при параллельных вызовах). Счетчик
+    сбрасывается на новые UTC-сутки. Возвращает False, если бюджет на
+    сегодня исчерпан — вызывающий код должен уйти в fallback, не дергая API.
+    """
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    async with _budget_lock:
+        if _budget_state["day"] != today:
+            _budget_state["day"] = today
+            _budget_state["count"] = 0
+        if _budget_state["count"] >= GEMINI_DAILY_BUDGET:
+            return False
+        _budget_state["count"] += 1
+        return True
+
+
+def get_gemini_usage_today() -> dict:
+    """Текущее состояние дневного бюджета — для /stats или админ-диагностики."""
+    return {
+        "date": _budget_state["day"],
+        "used": _budget_state["count"],
+        "limit": GEMINI_DAILY_BUDGET,
+    }
+
 
 OSINT_SYSTEM_PROMPT = {
     "ru": (
@@ -46,37 +95,50 @@ async def _generate(prompt: str, timeout_seconds: float = GENERATE_TIMEOUT_SECON
     выполняется в отдельном потоке через asyncio.to_thread и ограничен
     таймаутом asyncio.wait_for. Возвращает текст ответа или None при любой
     ошибке — никогда не бросает исключение наружу.
+
+    Теперь дополнительно защищена бюджетом (GEMINI_DAILY_BUDGET) и
+    параллелизмом (GEMINI_CONCURRENCY, см. комментарий у их определения
+    выше) — обе проверки происходят ДО обращения к API, чтобы исчерпанный
+    бюджет не стоил дополнительного сетевого вызова.
     """
     if not client:
         return None
 
-    try:
-        response = await asyncio.wait_for(
-            asyncio.to_thread(
-                client.models.generate_content,
-                model=GEMINI_MODEL,
-                contents=prompt,
-            ),
-            timeout=timeout_seconds,
-        )
-        if response and response.text:
-            return response.text.strip()
-        logger.warning(f"Gemini вернул пустой response.text (model={GEMINI_MODEL}).")
-        return None
-    except asyncio.TimeoutError as e:
-        logger.error(
-            f"[GEMINI_DIAGNOSTIC_ERROR] Failed to generate AI summary: "
-            f"{type(e).__name__} - Timeout after {timeout_seconds}s (model={GEMINI_MODEL})",
-            exc_info=True
+    if not await _budget_available():
+        logger.warning(
+            f"[GEMINI_BUDGET_EXCEEDED] Дневной лимит Gemini-вызовов исчерпан "
+            f"({GEMINI_DAILY_BUDGET}/день) — возвращаю fallback без обращения к API."
         )
         return None
-    except Exception as e:
-        logger.error(
-            f"[GEMINI_DIAGNOSTIC_ERROR] Failed to generate AI summary: {type(e).__name__} - {e} "
-            f"(model={GEMINI_MODEL})",
-            exc_info=True
-        )
-        return None
+
+    async with _gemini_semaphore:
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.models.generate_content,
+                    model=GEMINI_MODEL,
+                    contents=prompt,
+                ),
+                timeout=timeout_seconds,
+            )
+            if response and response.text:
+                return response.text.strip()
+            logger.warning(f"Gemini вернул пустой response.text (model={GEMINI_MODEL}).")
+            return None
+        except asyncio.TimeoutError as e:
+            logger.error(
+                f"[GEMINI_DIAGNOSTIC_ERROR] Failed to generate AI summary: "
+                f"{type(e).__name__} - Timeout after {timeout_seconds}s (model={GEMINI_MODEL})",
+                exc_info=True
+            )
+            return None
+        except Exception as e:
+            logger.error(
+                f"[GEMINI_DIAGNOSTIC_ERROR] Failed to generate AI summary: {type(e).__name__} - {e} "
+                f"(model={GEMINI_MODEL})",
+                exc_info=True
+            )
+            return None
 
 
 async def generate_raw(prompt: str, timeout_seconds: float = GENERATE_TIMEOUT_SECONDS):
