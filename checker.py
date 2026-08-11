@@ -50,13 +50,23 @@ MAIN_LOOP_INTERVAL_SECONDS = 75
 _background_tasks = set()
 
 
-async def get_recent_transactions(session: aiohttp.ClientSession, address: str) -> Optional[list]:
+async def get_recent_transactions(session: aiohttp.ClientSession, address: str,
+                                   _retry: bool = True) -> Optional[list]:
     """
     Получает до 5 последних транзакций кошелька — ОДИН запрос, используемый
     ОБЕИМИ системами (детектор пробуждения смотрит только на [0], радар
     сканирует весь список на предмет крупных сумм). Раньше offset был равен 2
     (хватало только для дормант-детектора); теперь 5, чтобы радар не терял
     сигналы при нескольких крупных транзакциях за один цикл.
+
+    НАЙДЕННЫЙ БАГ (наблюдаемость): при ошибке логировался только data["message"] —
+    а это ВСЕГДА буквально строка "NOTOK" у Etherscan при status="0", независимо
+    от реальной причины. Настоящая причина (rate limit, неверный ключ, плохие
+    параметры) лежит в data["result"], который раньше не логировался вообще —
+    из логов было невозможно понять, ЧТО именно пошло не так. Теперь логируется
+    result, и вдобавок ошибки, похожие на rate limit, получают один retry с
+    паузой вместо немедленного отказа (см. _retry) — самолечение внутри одного
+    цикла вместо ожидания следующего 75-секундного прохода.
     """
     params = {
         "chainid": 1,
@@ -73,7 +83,10 @@ async def get_recent_transactions(session: aiohttp.ClientSession, address: str) 
     try:
         async with session.get(ETHERSCAN_BASE_URL, params=params) as response:
             if response.status == 429:
-                logging.warning(f"Etherscan 429 (rate limit) для {address}")
+                logging.warning(f"Etherscan 429 (rate limit, HTTP-уровень) для {address}")
+                if _retry:
+                    await asyncio.sleep(1.5)
+                    return await get_recent_transactions(session, address, _retry=False)
                 return None
             data = await response.json()
             status = data.get("status")
@@ -88,7 +101,17 @@ async def get_recent_transactions(session: aiohttp.ClientSession, address: str) 
             elif status == "0" and message == "No transactions found":
                 return []
             else:
-                logging.error(f"Etherscan API ошибка для {address}: status={status}, message={message}")
+                # result здесь — строка с реальной причиной (например
+                # "Max rate limit reached", "Invalid API Key",
+                # "Missing/Invalid API Key" и т.д.) — именно ее не хватало в
+                # логах раньше.
+                logging.error(
+                    f"Etherscan API ошибка для {address}: status={status}, "
+                    f"message={message}, result={result!r}"
+                )
+                if _retry and isinstance(result, str) and "rate limit" in result.lower():
+                    await asyncio.sleep(1.5)
+                    return await get_recent_transactions(session, address, _retry=False)
                 return None
     except Exception as e:
         logging.error(f"Ошибка при запросе транзакций для {address}: {e}")
@@ -215,10 +238,25 @@ _etherscan_semaphore = asyncio.Semaphore(ETHERSCAN_CONCURRENCY)
 
 
 async def _process_wallet_throttled(session: aiohttp.ClientSession, address: str, label: str,
-                                     source: str, added_by, monitor_type: str, alert_threshold_eth: float):
+                                     source: str, added_by, monitor_type: str, alert_threshold_eth: float,
+                                     stagger_seconds: float = 0.0):
     """Оборачивает process_wallet семафором, чтобы не превысить rate limit
     Etherscan при параллельной обработке watchlist. Исключение одного
-    кошелька изолировано здесь и не прерывает обработку остальных."""
+    кошелька изолировано здесь и не прерывает обработку остальных.
+
+    НАЙДЕННЫЙ БАГ (обнаружен по логам продакшена — интермиттентные
+    status=0/NOTOK, разные адреса каждый цикл, самоизлечивающиеся к
+    следующему проходу): asyncio.gather() запускает ВСЕ задачи одновременно,
+    и до ETHERSCAN_CONCURRENCY из них проходят семафор МГНОВЕННО — то есть
+    реальный залповый всплеск из N запросов в один и тот же момент времени
+    КАЖДЫЙ цикл, а не размазанная по времени нагрузка. Формально "4 < 5/сек"
+    на бумаге, но если Etherscan считает скользящим окном строже — залп
+    может пробивать лимит именно из-за одновременности, а не из-за общего
+    количества. stagger_seconds размазывает МОМЕНТ ВХОДА в семафор по времени
+    внутри батча, оставляя сам семафор как защитный потолок параллельности.
+    """
+    if stagger_seconds > 0:
+        await asyncio.sleep(stagger_seconds)
     async with _etherscan_semaphore:
         try:
             await process_wallet(session, address, label or "Unknown", source, added_by,
@@ -243,8 +281,11 @@ async def main():
                 logging.info(f"--- Проверка watchlist: {len(watchlist)} адресов (concurrency={ETHERSCAN_CONCURRENCY}) ---")
 
                 tasks = [
-                    _process_wallet_throttled(session, address, label, source, added_by, monitor_type, alert_threshold_eth)
-                    for address, label, source, added_by, monitor_type, alert_threshold_eth in watchlist
+                    _process_wallet_throttled(
+                        session, address, label, source, added_by, monitor_type, alert_threshold_eth,
+                        stagger_seconds=(i % ETHERSCAN_CONCURRENCY) * 0.3,
+                    )
+                    for i, (address, label, source, added_by, monitor_type, alert_threshold_eth) in enumerate(watchlist)
                 ]
                 if tasks:
                     await asyncio.gather(*tasks)
