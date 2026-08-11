@@ -200,6 +200,37 @@ async def process_wallet(session: aiohttp.ClientSession, address: str, label: st
         await _run_radar_check(address, label, source, added_by, txs, alert_threshold_eth)
 
 
+# Найденный приоритет для роста: старая реализация обрабатывала watchlist
+# СТРОГО последовательно (один адрес -> sleep(0.3) -> следующий). При
+# небольшом watchlist это незаметно, но при росте до сотен адресов сам цикл
+# обработки начинает занимать дольше, чем MAIN_LOOP_INTERVAL_SECONDS (75с) —
+# и алерты становятся тем более "устаревшими", чем больше растет watchlist,
+# без КАКОГО-ЛИБО предупреждения об этом. Ниже — ограниченная параллельность
+# через семафор: несколько кошельков обрабатываются одновременно, но не
+# больше ETHERSCAN_CONCURRENCY одновременных запросов — тот же бюджет
+# rate-limit'а Etherscan (free-tier ~5 req/s), что и раньше, просто
+# используемый параллельно, а не последовательно.
+ETHERSCAN_CONCURRENCY = 4
+_etherscan_semaphore = asyncio.Semaphore(ETHERSCAN_CONCURRENCY)
+
+
+async def _process_wallet_throttled(session: aiohttp.ClientSession, address: str, label: str,
+                                     source: str, added_by, monitor_type: str, alert_threshold_eth: float):
+    """Оборачивает process_wallet семафором, чтобы не превысить rate limit
+    Etherscan при параллельной обработке watchlist. Исключение одного
+    кошелька изолировано здесь и не прерывает обработку остальных."""
+    async with _etherscan_semaphore:
+        try:
+            await process_wallet(session, address, label or "Unknown", source, added_by,
+                                  monitor_type, alert_threshold_eth)
+        except Exception as wallet_err:
+            logging.error(f"Ошибка обработки кошелька {address}: {wallet_err}")
+        # Небольшая пауза ВНУТРИ семафора — распределяет фактическую частоту
+        # запросов по времени в рамках допустимого слота параллельности,
+        # вместо одной сплошной паузы между каждым адресом.
+        await asyncio.sleep(0.2)
+
+
 async def main():
     db.init_db()
 
@@ -209,17 +240,14 @@ async def main():
             # кошелька не должен убивать фоновый мониторинг навсегда.
             try:
                 watchlist = db.get_active_watchlist()
-                logging.info(f"--- Проверка watchlist: {len(watchlist)} адресов ---")
+                logging.info(f"--- Проверка watchlist: {len(watchlist)} адресов (concurrency={ETHERSCAN_CONCURRENCY}) ---")
 
-                for address, label, source, added_by, monitor_type, alert_threshold_eth in watchlist:
-                    try:
-                        await process_wallet(
-                            session, address, label or "Unknown", source, added_by,
-                            monitor_type, alert_threshold_eth
-                        )
-                    except Exception as wallet_err:
-                        logging.error(f"Ошибка обработки кошелька {address}: {wallet_err}")
-                    await asyncio.sleep(0.3)  # Соблюдаем rate limit Etherscan
+                tasks = [
+                    _process_wallet_throttled(session, address, label, source, added_by, monitor_type, alert_threshold_eth)
+                    for address, label, source, added_by, monitor_type, alert_threshold_eth in watchlist
+                ]
+                if tasks:
+                    await asyncio.gather(*tasks)
 
             except Exception as loop_err:
                 logging.error(f"Ошибка в основном цикле мониторинга: {loop_err}")
